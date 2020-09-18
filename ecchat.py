@@ -11,6 +11,7 @@ import zmq
 import sys
 
 from slickrpc import Proxy
+from slickrpc import exc
 
 eccoin = Proxy('http://%s:%s@%s'%(settings.rpc_user, settings.rpc_pass, settings.rpc_address))
 
@@ -38,20 +39,22 @@ def checkRoute(routingTag):
 
 ################################################################################
 
-class eccPacket(dict):
+class eccPacket():
 
-	TYPE_MESSAGE = "message"
+	TYPE_chatMsg = 'chatMsg'
+	TYPE_addrReq = 'addrReq'
+	TYPE_addrRes = 'addrRes'
 
 	def __init__(self, _id = '', _ver = '', _to = '', _from = '', _type = '', _data = ''):
 
 		# TOTO: Add some validation checks here
 
-		self.packet = {	"_id"	: _id,
-						"_ver"	: _ver,
-						"_to"	: _to,
-						"_from"	: _from,
-						"_type"	: _type,
-						"_data"	: _data}
+		self.packet = {	'_id'	: _id,
+						'_ver'	: _ver,
+						'_to'	: _to,
+						'_from'	: _from,
+						'_type'	: _type,
+						'_data'	: _data}
 
 	############################################################################
 
@@ -63,13 +66,31 @@ class eccPacket(dict):
 
 		# TOTO: Add some validation checks here
 
-		return cls(d['_id'], d['_ver'], d['_to'], d['_from'], d['_type'], d[_data])
+		return cls(d['_id'], d['_ver'], d['_to'], d['_from'], d['_type'], d['_data'])
+
+	############################################################################
+
+	def get_from(self):
+
+		return self.packet['_from']
+
+	############################################################################
+
+	def get_type(self):
+
+		return self.packet['_type']
+
+	############################################################################
+
+	def get_data(self):
+
+		return self.packet['_data']
 
 	############################################################################
 
 	def send(self):
 
-		eccoin.sendpacket(self.packet["_to"], self.packet["_id"], self.packet["_ver"], json.dumps(self.packet))
+		eccoin.sendpacket(self.packet['_to'], self.packet['_id'], json.dumps(self.packet))
 
 ################################################################################
 
@@ -87,7 +108,7 @@ def main():
 
 	if sys.version_info[0] < 3:
 
-		raise "Use Python 3"
+		raise 'Use Python 3'
 
 	pathlib.Path('log').mkdir(parents=True, exist_ok=True)
 
@@ -142,17 +163,27 @@ def main():
 		print('*******************************************')
 		print('')
 
-		while True:
+		bExit = False
+
+		while not bExit:
 
 			socks = dict(poller.poll())
 
 			if sys.stdin.fileno() in socks:
 
-				line = command_line_args.name + '> ' + sys.stdin.readline()
+				line = sys.stdin.readline().strip('\n')
 
-				packet = eccPacket(settings.protocol_id, settings.protocol_ver, command_line_args.tag, routingTag, eccPacket.TYPE_MESSAGE, line)
+				if line == "exit":
 
-				packet.send()
+					bExit = True
+
+					continue
+
+				data = command_line_args.name + '> ' + line
+
+				ecc_packet = eccPacket(settings.protocol_id, settings.protocol_ver, command_line_args.tag, routingTag, eccPacket.TYPE_chatMsg, data)
+
+				ecc_packet.send()
 
 			if subscriber in socks:
 
@@ -162,7 +193,7 @@ def main():
 
 					protocolID = contents.decode()[1:]
 
-					bufferCmd = "GetBufferRequest:" + protocolID + str(bufferIdx := bufferIdx + 1)
+					bufferCmd = 'GetBufferRequest:' + protocolID + str(bufferIdx := bufferIdx + 1)
 
 					bufferSig = eccoin.buffersignmessage(bufferKey, bufferCmd)
 
@@ -172,7 +203,29 @@ def main():
 
 						message = codecs.decode(packet, 'hex').decode()
 
-						print(message)
+						ecc_packet = eccPacket.from_json(message)
+
+						if   ecc_packet.get_type() == eccPacket.TYPE_chatMsg:
+
+							print(ecc_packet.get_data())
+
+						elif ecc_packet.get_type() == eccPacket.TYPE_addrReq:
+
+							pass
+
+						elif ecc_packet.get_type() == eccPacket.TYPE_addrReq:
+
+							pass
+
+						else:
+
+							pass
+
+	bufferCmd = 'ReleaseBufferRequest'
+
+	bufferSig = eccoin.buffersignmessage(bufferKey, bufferCmd)
+
+	eccoin.releasebuffer(settings.protocol_id, bufferSig)
 
 	subscriber.close()
 	context.term()
@@ -181,7 +234,7 @@ def main():
 
 ################################################################################
 
-if __name__ == "__main__":
+if __name__ == '__main__':
 
 	main()
 
